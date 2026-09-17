@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from ..errors import ExtractionConfigError
 from ..source_registry import is_authoritative_source
 
 
@@ -16,8 +17,8 @@ def _read_file_text(repo_root: Path, relative_path: str) -> str:
         return ""
     try:
         return file_path.read_text(encoding="utf-8")
-    except OSError:
-        raise ValueError(f"Unreadable authoritative file: {relative_path}")
+    except OSError as exc:
+        raise ExtractionConfigError(f"Unreadable authoritative file: {relative_path}") from exc
 
 
 def extract_deployment_pipeline(repo_root: Path, files: list[str]) -> str | None:

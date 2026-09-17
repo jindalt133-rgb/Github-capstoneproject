@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..errors import ExtractionConfigError, validate_authoritative_file
 from ..field_catalog import FIELD_CATALOG
 from ..repo_scan import scan_repository_files
 from .config import (
@@ -89,6 +90,9 @@ def extract_repository_metadata(root: str | Path) -> dict[str, str]:
     repo_root = Path(root)
     files = scan_repository_files(repo_root)
     metadata: dict[str, str] = {}
+
+    for relative_path in files:
+        validate_authoritative_file(repo_root, relative_path)
 
     for field_name in FIELD_CATALOG:
         if field_name == "Last Updated":
