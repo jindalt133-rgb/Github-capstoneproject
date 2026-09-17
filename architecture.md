@@ -31,17 +31,7 @@ The manifest must follow the Technical-App-Manifest-v1 structure and formatting.
 
 The Repository Scanner is responsible for traversing the repository and finding files that may contain technical metadata.
 
-It should scan files such as:
-
-- Python package configuration
-- FastAPI application files
-- database configuration files
-- GitHub Actions workflow files
-- pytest configuration
-- technical environment configuration files
-- other repository files that define runtime, deployment, or build behavior
-
-It does not scan README files or narrative documentation as sources of technical truth.
+It scans only the repository files that are allowed to be authoritative technical sources. It does not inspect README files or general project documentation as a source of technical truth.
 
 ### 2.2 Authoritative Source Rules
 
@@ -60,44 +50,39 @@ This layer is responsible for:
 
 The Metadata Extractor reads the authoritative files and converts repository state into a normalized metadata model.
 
-This component is responsible for extracting values for fields such as:
+This component is responsible for extracting values for fields required by the manifest. It must normalize values before they are stored and compared.
 
-- Application Name
-- Language/Runtime
-- Frameworks
-- Primary Database
-- Cloud Provider
-- Infrastructure
-- Main Branch
-- Build Tool
-- Deployment Pipeline
-- Test Frameworks
-- Security Scanning settings
-- GitHub Repository
-- Current Version
-- API Documentation references
-- other repository-derived technical fields required by the manifest
+### 2.4 Normalization and Comparison Layer
 
-Where a value cannot be determined from repository artifacts, the extracted value must be exactly:
+The Normalization and Comparison Layer standardizes metadata values before they are compared with the manifest.
 
-- Not Found
+It is responsible for:
 
-### 2.4 Security Filter
+- lowercasing values when appropriate
+- trimming leading/trailing whitespace
+- normalizing list ordering for multi-value fields
+- preserving consistent formatting for values such as branch names, environment names, and URLs
+- comparing repository-derived values and manifest values field-by-field after normalization
+
+This ensures drift detection is deterministic and repeatable.
+
+### 2.5 Security Filter
 
 The Security Filter guards against writing sensitive data into the generated Markdown manifest.
 
-It checks extracted values and removes or blocks any values that resemble:
+It checks extracted values and removes or blocks any values associated with names or patterns such as:
 
-- secrets
-- tokens
-- passwords
-- API keys
-- credential-like configuration
-- environment variables with sensitive naming or values
+- SECRET
+- PASSWORD
+- TOKEN
+- API_KEY
+- CREDENTIAL
+- PRIVATE_KEY
+- and similar credential-like identifiers
 
-This component is required before any manifest update is made.
+Environment variable names may be documented when appropriate, but their values must never be written to the manifest. If a field is intentionally excluded because it is sensitive, the technical field value for that field must be recorded as Not Found where the field contract requires a value.
 
-### 2.5 Manifest Reader and Parser
+### 2.6 Manifest Reader and Parser
 
 The Manifest Reader and Parser reads the existing Markdown file at:
 
@@ -113,11 +98,13 @@ It identifies:
 
 It preserves the structure and formatting of the manifest while allowing safe updates to repository-derived technical metadata.
 
-### 2.6 Preservation Layer for Human-Maintained Content
+### 2.7 Preservation Layer for Human-Maintained Content
 
 This component ensures that narrative and non-technical values are not overwritten.
 
-It protects fields such as:
+It protects a fixed allowlist of repository-derived technical fields that may be synchronized and a fixed blocklist of human-maintained fields that must never be touched.
+
+Protected human-maintained fields include:
 
 - Service Owner
 - Business Impact
@@ -127,15 +114,15 @@ It protects fields such as:
 
 It also preserves text outside of the repository-derived technical fields and the existing Markdown organization.
 
-### 2.7 Drift Detector
+### 2.8 Drift Detector
 
-The Drift Detector compares the repository-derived metadata with the current manifest values.
+The Drift Detector compares normalized repository-derived metadata with the normalized manifest values.
 
 It checks whether any repository-derived technical fields differ from the manifest and determines whether a synchronization update is needed.
 
-If no technical drift is detected, the manifest should remain unchanged and the process should exit successfully.
+If no technical drift is detected, the manifest remains unchanged and the process exits successfully.
 
-### 2.8 Synchronization Orchestrator
+### 2.9 Synchronization Orchestrator
 
 The Synchronization Orchestrator is the central logic owner for the automation.
 
@@ -143,20 +130,22 @@ It coordinates the full flow:
 
 - scan repository
 - extract metadata
+- normalize values
 - filter secrets
 - read manifest
-- preserve human-maintained sections
+- validate protected field boundaries
 - compare metadata with manifest
-- update repository-derived technical fields
+- update repository-derived technical fields only
 - update Last Updated
-- write manifest only when necessary
+- verify resulting diff
+- write manifest only when a real change exists
 - complete successfully when there is no drift
 
-### 2.9 Manifest Writer
+### 2.10 Manifest Writer
 
 The Manifest Writer applies safe updates to the Markdown file.
 
-It writes only the repository-derived technical values and the Last Updated value when changes are required.
+It updates only explicitly targeted technical fields and the Last Updated value. It does not regenerate the whole document.
 
 It must never:
 
@@ -165,15 +154,15 @@ It must never:
 - rewrite non-technical narrative content
 - add unsupported fields or structure outside the required template
 
-### 2.10 GitHub Actions Workflow
+### 2.11 GitHub Actions Workflow
 
 The GitHub Actions workflow is the automation mechanism for executing the synchronization process in CI.
 
-It runs the Python automation on repository events and performs the manifest update when drift is detected.
+It runs the Python automation on repository events, detects manifest drift, updates the manifest when required, and commits the updated file only when it has a real change.
 
-It must also prevent recursive self-triggering after the commit that updates the manifest.
+It prevents recursive self-triggering by detecting the automation-generated commit and skipping synchronization for that commit.
 
-### 2.11 Test Harness
+### 2.12 Test Harness
 
 The Test Harness provides automated verification across the solution.
 
@@ -196,21 +185,22 @@ The data flow is intentionally simple and linear:
 4. The security filter removes secret or credential-like values.
 5. The existing manifest is read and parsed.
 6. Human-maintained narrative and non-technical fields are preserved.
-7. Drift detection compares repository-derived metadata to the manifest.
-8. If drift exists, the synchronization orchestrator updates the allowed technical fields and the Last Updated field.
-9. The manifest writer saves the change.
-10. If no drift exists, the manifest remains unchanged and the process exits successfully.
-11. GitHub Actions executes the workflow and commits the updated manifest when needed.
+7. Metadata and manifest values are normalized for comparison.
+8. Drift detection compares repository-derived metadata to the manifest field-by-field.
+9. If drift exists, the synchronization orchestrator updates only the allowed technical fields and Last Updated.
+10. The manifest writer verifies the resulting diff and writes the file only when an actual change exists.
+11. If no drift exists, the manifest remains unchanged and the process exits successfully.
+12. GitHub Actions executes the workflow, commits only when a real manifest change exists, and skips automation-generated commits to avoid loops.
 
 This data flow ensures that only repository-derived technical values are changed and that no unrelated repository content is touched.
 
 ## 4. Metadata Extraction Strategy
 
-The extraction logic should be modular and field-driven.
+The extraction logic is modular and field-driven.
 
 ### 4.1 Extraction by Domain
 
-Metadata should be grouped by domain to keep the logic maintainable:
+Metadata is grouped by domain to keep the logic maintainable:
 
 - application identity
 - runtime and language
@@ -230,8 +220,9 @@ Each extractor should:
 - normalize the extracted value into a consistent format
 - produce a structured value for comparison and writing
 - return Not Found when no valid repository value exists
+- return an explicit error when an authoritative configuration file is unreadable or malformed
 
-### 4.3 Required Determinism
+### 4.3 Determinism and Repeatability
 
 The extraction process must be deterministic:
 
@@ -242,11 +233,43 @@ The extraction process must be deterministic:
 
 This supports idempotent synchronization and snapshot-based testing.
 
-## 5. Authoritative Source Rules
+## 5. Field-to-Source Mapping
 
-This solution will use repository code and technical configuration as the source of truth.
+The system uses an explicit field catalog to map each repository-derived manifest field to its authoritative source, extraction method, normalization rule, and fallback behavior.
 
-### 5.1 Allowed Sources
+| Manifest Field | Authoritative Source | Extraction Method | Normalization Rule | Fallback Behavior |
+|---|---|---|---|---|
+| Application Name | repository metadata / package metadata / app entrypoints | parse project metadata and app identifiers | trim whitespace; canonical casing for display | Not Found |
+| Language/Runtime | Python project configuration and runtime files | parse Python version/runtime metadata | normalize runtime string; remove duplicate whitespace | Not Found |
+| Frameworks | FastAPI and Python dependency configuration | parse dependency metadata and framework imports | stable list ordering; lowercase compare values | Not Found |
+| Primary Database | database config and application config | inspect DB configuration settings | normalize database name; single canonical value | Not Found |
+| Cloud Provider | deployment config / infrastructure files | inspect provider configuration | lowercase provider name; single canonical value | Not Found |
+| Infrastructure | IaC / deployment configuration | parse infrastructure config | normalize whitespace; single canonical string | Not Found |
+| Main Branch | repository settings / branch config | read default branch configuration | normalize branch names; lowercase when appropriate | Not Found |
+| Build Tool | project config and CI workflow | inspect build-related config | canonicalize tool names | Not Found |
+| Critical Env Variables | technical env config and application config | identify non-sensitive environment keys and safe documented config | stable sorted list; exclude sensitive values | Not Found |
+| Deployment Pipeline | GitHub Actions workflow files | parse workflow jobs and actions | normalize workflow names; stable output | Not Found |
+| Test Frameworks | pytest config and test tooling files | inspect pytest and related config | sort and canonicalize names | Not Found |
+| Code Coverage Goal | pytest config / tooling config | parse coverage configuration | normalize numeric or percentage value | Not Found |
+| Security Scanning | GitHub Actions and repo security tooling | inspect scan workflows or tool config | canonicalize scanner name | Not Found |
+| Observation/Logging | app config and observability settings | inspect logging and monitoring config | canonicalize names and values | Not Found |
+| GitHub Repository | git remote metadata / repo metadata | read remote or repository metadata | canonical URL / repo slug | Not Found |
+| API Documentation | app routes / docs config / repo config | detect OpenAPI docs or doc endpoints | canonicalize URL/path value | Not Found |
+| JIRA Board | human-maintained field; not repository-derived | not automatically updated | preserved as-is | protected field remains unchanged |
+| On-Call Rotation | human-maintained field; not repository-derived | not automatically updated | preserved as-is | protected field remains unchanged |
+| Current Version | package metadata / release metadata / config | parse version metadata | normalize semantic version format | Not Found |
+| Last Updated | synchronization process | write current UTC timestamp at sync time | UTC ISO-8601 format: YYYY-MM-DDTHH:MM:SSZ | managed by sync process |
+| Service Owner | human-maintained field; not repository-derived | not automatically updated | preserved as-is | protected field remains unchanged |
+| Business Impact | human-maintained field; not repository-derived | not automatically updated | preserved as-is | protected field remains unchanged |
+| Description | human-maintained field; not repository-derived | not automatically updated | preserved as-is | protected field remains unchanged |
+
+This field catalog is the implementation contract for the synchronization system and defines which values are safe to update, which values are protected, and which values must be represented as Not Found when unavailable.
+
+## 6. Authoritative Source Rules
+
+This solution uses repository code and technical configuration as the source of truth.
+
+### 6.1 Allowed Sources
 
 Allowed sources include:
 
@@ -257,7 +280,7 @@ Allowed sources include:
 - pytest configuration
 - other technical files required to determine runtime, build, deployment, and testing metadata
 
-### 5.2 Explicitly Disallowed Sources
+### 6.2 Explicitly Disallowed Sources
 
 The following are not sources of technical truth:
 
@@ -268,19 +291,23 @@ The following are not sources of technical truth:
 
 These materials must not drive any repository-derived technical values.
 
-### 5.3 Missing Data Rule
+### 6.3 Missing Data Rule
 
-If a technical value is not available from authoritative repository artifacts, the system must write exactly:
+If a technical value is not available from authoritative repository artifacts, the system writes exactly:
 
 - Not Found
 
-This requirement prevents guessing and ensures the manifest remains truthful.
+If a field is intentionally excluded because it is sensitive, the field value must also be represented as Not Found if the field contract requires a value.
 
-## 6. Manifest Preservation Strategy
+### 6.4 Invalid or Unreadable Repository State
 
-The manifest must preserve the existing structure and format of Technical-App-Manifest-v1 while allowing targeted updates to technical fields.
+If an authoritative configuration file is unreadable, malformed, or cannot be parsed, the system reports an explicit error and does not write a partially generated manifest.
 
-### 6.1 Preservation Rules
+## 7. Manifest Preservation Strategy
+
+The manifest must preserve the existing structure and format of Technical-App-Manifest-v1 while allowing targeted updates to the repository-derived technical fields.
+
+### 7.1 Preservation Rules
 
 The system shall:
 
@@ -290,10 +317,34 @@ The system shall:
 - preserve Markdown formatting
 - update only repository-derived technical metadata fields
 - keep the overall template structure intact
+- use section-aware and field-level updates; do not regenerate the full document
 
-### 6.2 Protected Fields
+### 7.2 Protected Fields and Allowlist
 
-The following fields are human-maintained and must never be overwritten by synchronization:
+The synchronization process maintains an explicit allowlist of repository-derived fields that may be updated and a protected blocklist of human-maintained fields that must never be modified.
+
+Allowed technical fields include only those values derived from repository metadata, such as:
+
+- Application Name
+- Language/Runtime
+- Frameworks
+- Primary Database
+- Cloud Provider
+- Infrastructure
+- Main Branch
+- Build Tool
+- Critical Env Variables
+- Deployment Pipeline
+- Test Frameworks
+- Code Coverage Goal
+- Security Scanning
+- Observation/Logging
+- GitHub Repository
+- API Documentation
+- Current Version
+- Last Updated
+
+Protected human-maintained fields include:
 
 - Service Owner
 - Business Impact
@@ -301,34 +352,48 @@ The following fields are human-maintained and must never be overwritten by synch
 - JIRA Board
 - On-Call Rotation
 
-These fields remain subject to human maintenance and should remain untouched unless explicitly changed by a person.
+Before writing any manifest update, the system validates that only allowlisted technical fields will change and that no protected fields are included in the proposed change set.
 
-### 6.3 Automatic Field Update
+### 7.3 Last Updated Format
 
-The synchronization process is responsible for updating the field:
+Last Updated is managed by the synchronization process and must use UTC ISO-8601 timestamp format:
 
-- Last Updated
+- YYYY-MM-DDTHH:MM:SSZ
 
-This field is managed automatically by the system and is updated when the manifest is synchronized.
+It is updated only when the manifest is actually synchronized because technical metadata changed.
 
-## 7. Drift Detection and Synchronization
+## 8. Drift Detection and Synchronization
 
-Drift detection is the comparison step between the repository-derived metadata model and the current manifest.
+Drift detection is the comparison step between normalized repository-derived metadata and the normalized current manifest values.
 
-### 7.1 Synchronization Logic
+### 8.1 Normalization Rules
+
+Both extracted metadata and manifest values are normalized before comparison.
+
+Normalization rules include:
+
+- trim whitespace
+- normalize casing where appropriate
+- normalize list ordering for multi-value fields
+- standardize separators and formatting
+- apply consistent comparison rules for URLs, branch names, and version strings
+
+### 8.2 Synchronization Logic
 
 The workflow is:
 
 1. extract technical metadata from the repository
 2. normalize and filter values
 3. read the current manifest
-4. compare current manifest values with extracted repository metadata
-5. if different, update only the allowed technical fields
-6. update Last Updated
-7. write the manifest
-8. if no technical drift exists, leave the manifest unchanged and return success
+4. normalize manifest values for comparison
+5. compare the values field-by-field
+6. if different, update only the allowed technical fields
+7. update Last Updated
+8. verify the resulting diff
+9. write the manifest only when a real change exists
+10. if no drift exists, leave the manifest unchanged and return success
 
-### 7.2 Idempotence
+### 8.3 Idempotence
 
 The system must be idempotent:
 
@@ -336,19 +401,20 @@ The system must be idempotent:
 - repeated synchronization must not create unnecessary file churn
 - the manifest must remain stable when there is no drift
 
-### 7.3 Determinism
+### 8.4 Determinism
 
 The process must be deterministic:
 
 - same repository state produces the same manifest output
 - stable formatting is preserved
 - output ordering remains consistent
+- drift decisions are based only on normalized values after all required filtering is applied
 
-## 8. Security and Sensitive Data Handling
+## 9. Security and Sensitive Data Handling
 
 Security is a primary architectural constraint.
 
-### 8.1 Sensitive Items to Exclude
+### 9.1 Sensitive Items to Exclude
 
 The synchronization process must never include:
 
@@ -359,26 +425,41 @@ The synchronization process must never include:
 - credential-like values
 - sensitive environment variable content
 
-### 8.2 Protection Strategy
+It treats values associated with names such as:
+
+- SECRET
+- PASSWORD
+- TOKEN
+- API_KEY
+- CREDENTIAL
+- PRIVATE_KEY
+- and similar credential patterns
+
+as sensitive.
+
+### 9.2 Protection Strategy
 
 The system shall protect metadata using a security filtering stage before manifest writing.
 
-This may include:
+This includes:
 
 - keyword and key-name filtering for secret-like values
 - allowlisting only safe metadata fields
 - redaction or omission of sensitive configuration values
 - rejection of values that are not explicitly permitted for documentation output
+- preserving environment variable names only when they are safe to document, while never writing their values
 
-### 8.3 Mandatory Constraint
+If a field is intentionally excluded because it is sensitive, the system uses Not Found for that field when the field contract requires a value.
+
+### 9.3 Mandatory Constraint
 
 No sensitive data may ever be written to the manifest, commit metadata, logs, or test fixtures.
 
-## 9. GitHub Actions Integration
+## 10. GitHub Actions Integration
 
 GitHub Actions is the execution environment for the automated synchronization workflow.
 
-### 9.1 Execution Model
+### 10.1 Execution Model
 
 The GitHub Actions workflow will:
 
@@ -386,39 +467,83 @@ The GitHub Actions workflow will:
 - execute the Python synchronization script
 - detect manifest drift
 - update the manifest when required
-- commit the changes back to the repository
+- verify the resulting diff
+- commit the changes back to the repository only when a real change exists
 
-### 9.2 Safety Requirement
+### 10.2 Safety Requirement and Recursive Protection
 
 The workflow must avoid recursive self-triggering after it commits the updated manifest.
 
-This requires guard logic such as:
+The concrete mechanism is:
 
-- skipping workflow runs caused by the bot commit itself
-- checking the commit author or message before continuing
-- limiting workflow execution to relevant repository changes
+- detect whether the current commit was created by the automation bot or by the sync process itself
+- skip synchronization for that automation-generated commit
 
-The goal is to ensure the automation is safe and does not loop indefinitely.
+This is the required anti-recursion guard for the workflow. The automation must not run again for the commit it just created.
 
-### 9.3 Scope Control
+### 10.3 Scope Control
 
 The workflow must update only the manifest file and must not modify unrelated files in the repository.
 
-## 10. Testing Strategy
+### 10.4 No-Op Behavior
+
+If there is no drift:
+
+- do not modify the manifest
+- do not create a commit
+- exit successfully
+
+If drift exists:
+
+- update only allowed technical fields
+- update Last Updated
+- verify the resulting diff
+- commit only when an actual change exists
+
+## 11. Error Handling
+
+The workflow and synchronization logic define explicit behavior for predictable failure conditions.
+
+### 11.1 Failure Modes
+
+The system handles the following failure modes:
+
+- missing files
+- unreadable files
+- malformed configuration
+- malformed manifest
+- unsupported repository state
+- failed metadata extraction
+- failed manifest update
+
+### 11.2 Required Behavior
+
+On failure:
+
+- report the error explicitly
+- do not write the manifest when the intermediate metadata state is invalid
+- do not partially generate or partially update the manifest
+- exit with a non-zero status if the required sync cannot be completed safely
+
+This is essential to prevent inconsistent documentation or untrusted manifest state.
+
+## 12. Testing Strategy
 
 The architecture requires a testable solution that supports small-project development without over-engineering.
 
-### 10.1 Unit Tests
+### 12.1 Unit Tests
 
 Unit tests validate individual components such as:
 
 - repository scanning logic
 - metadata extractors
+- normalization rules
 - secret filtering logic
 - missing-value handling
 - drift comparison rules
+- manifest parsing and update logic
 
-### 10.2 Integration Tests
+### 12.2 Integration Tests
 
 Integration tests verify that the complete workflow works end-to-end against a controlled repository fixture.
 
@@ -426,11 +551,13 @@ This includes:
 
 - repository scan
 - metadata extraction
+- normalization
 - drift detection
 - manifest write
 - no-op behavior when no drift exists
+- protected-field preservation
 
-### 10.3 Golden/Snapshot Tests
+### 12.3 Golden/Snapshot Tests
 
 Golden tests verify deterministic output.
 
@@ -440,12 +567,26 @@ They ensure that:
 - the format remains consistent with Technical-App-Manifest-v1
 - human-maintained fields are preserved as-is
 - only repository-derived technical fields change when expected
+- Last Updated uses the expected UTC ISO-8601 format
 
-### 10.4 CI Validation
+### 12.4 CI Validation
 
 GitHub Actions is used to run the validation pipeline and confirm the automation works safely in the repository environment.
 
-## 11. Design Assumptions
+The concrete CI test matrix includes:
+
+- normal metadata extraction
+- missing metadata → Not Found
+- protected-field preservation
+- secret filtering
+- deterministic output
+- idempotent repeated execution
+- drift detection
+- no-drift behavior
+- manifest formatting using a golden/snapshot test
+- CI recursion protection
+
+## 13. Design Assumptions
 
 This architecture assumes:
 
@@ -455,12 +596,13 @@ This architecture assumes:
 - human-maintained narrative content should be preserved and protected from automated overwrite
 - the project does not require multi-service deployment or remote microservice coordination
 - GitHub Actions is the designated automation platform
+- the manifest structure is defined by Technical-App-Manifest-v1 and will remain stable for this capstone
 
-## 12. Architectural Decisions
+## 14. Architectural Decisions
 
 ### Decision 1: Single Python automation module
 
-The solution will be implemented as a small Python application with modular internal components rather than separate services.
+The solution is implemented as a small Python application with modular internal components rather than separate services.
 
 This keeps the design practical for a small project while satisfying the requirements.
 
@@ -484,15 +626,19 @@ Sensitive values are always excluded or masked before generating the manifest.
 
 The workflow is the execution mechanism for synchronization and commit automation.
 
-### Decision 7: Workflow recursion is prevented
+### Decision 7: Workflow recursion is prevented by automation-commit detection
 
-The workflow includes guard logic to avoid repeating sync commits indefinitely.
+The workflow skips synchronization when the current commit was created by the automation itself.
 
 ### Decision 8: Determinism and idempotence are required
 
 The output must be stable and safe when the repository has not changed.
 
-## 13. Scope Boundary
+### Decision 9: Last Updated uses UTC ISO-8601
+
+The system writes Last Updated in the format YYYY-MM-DDTHH:MM:SSZ and updates it only when a real technical change has been synchronized.
+
+## 15. Scope Boundary
 
 This architecture intentionally does not introduce functionality beyond the approved requirements.
 
