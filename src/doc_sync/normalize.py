@@ -23,8 +23,16 @@ def _canonicalize_runtime(value: str) -> str:
         "node": "Node.js",
         "nodejs": "Node.js",
     }
-    lowered = value.strip().lower()
-    return mapping.get(lowered, value.strip())
+    trimmed = value.strip()
+    lowered = trimmed.lower()
+    if lowered.startswith("python"):
+        remainder = lowered[len("python") :].strip()
+        if not remainder:
+            return "Python"
+        if remainder.startswith("3"):
+            return f"Python {remainder}"
+        return f"Python {remainder}"
+    return mapping.get(lowered, trimmed)
 
 
 def _normalize_case_for_field(field_name: str, value: str) -> str:
