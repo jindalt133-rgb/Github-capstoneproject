@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import MANIFEST_PATH, MISSING_VALUE, PROTECTED_FIELDS
@@ -56,6 +57,15 @@ def validate_update_request(field_names: Iterable[str]) -> None:
         raise ValueError(f"Protected fields cannot be updated: {', '.join(protected_fields)}")
 
 
+def generate_utc_iso8601_timestamp(now: datetime | None = None) -> str:
+    """Return a UTC ISO-8601 timestamp string for manifest synchronization events."""
+    timestamp = now or datetime.now(timezone.utc)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    utc_time = timestamp.astimezone(timezone.utc)
+    return utc_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def update_manifest_field(manifest_text: str, field_name: str, value: object) -> str:
     """Update a single manifest field while preserving all other Markdown content."""
     validate_update_request([field_name])
@@ -94,6 +104,42 @@ def update_manifest_field(manifest_text: str, field_name: str, value: object) ->
     return "\n".join(lines) + ("\n" if manifest_text.endswith("\n") else "")
 
 
+def update_last_updated_field(manifest_text: str, value: str | None = None, *, now: datetime | None = None) -> str:
+    """Update the Last Updated field while preserving unrelated Markdown content."""
+    timestamp = value if value is not None else generate_utc_iso8601_timestamp(now)
+    return update_manifest_field(manifest_text, "Last Updated", timestamp)
+
+
+def apply_last_updated_if_changed(manifest_text: str, changed_fields: Iterable[str] | dict[str, object] | set[str], *, now: datetime | None = None) -> str:
+    """Apply real technical updates and stamp Last Updated only when the manifest actually changes."""
+    if isinstance(changed_fields, dict):
+        updates = dict(changed_fields)
+        field_keys = tuple(updates.keys())
+    else:
+        updates = {}
+        field_keys = tuple(changed_fields)
+
+    if not field_keys:
+        return manifest_text
+
+    protected_updates = [field for field in field_keys if field in PROTECTED_FIELDS]
+    if protected_updates and len(protected_updates) == len(field_keys):
+        return manifest_text
+
+    if updates:
+        technical_updates = {field: value for field, value in updates.items() if field not in PROTECTED_FIELDS}
+        if not technical_updates:
+            return manifest_text
+        updated_manifest = update_manifest_fields(manifest_text, technical_updates)
+        return update_last_updated_field(updated_manifest, now=now)
+
+    technical_fields = [field for field in field_keys if field not in PROTECTED_FIELDS]
+    if not technical_fields:
+        return manifest_text
+
+    return update_last_updated_field(manifest_text, now=now)
+
+
 def update_manifest_fields(manifest_text: str, field_values: dict[str, object]) -> str:
     """Update multiple repository-derived technical fields while preserving all non-target content."""
     validate_update_request(field_values)
@@ -117,7 +163,10 @@ __all__ = [
     "MANIFEST_PATH",
     "find_manifest_field",
     "parse_manifest_fields",
+    "generate_utc_iso8601_timestamp",
     "update_manifest_field",
     "update_manifest_fields",
+    "update_last_updated_field",
+    "apply_last_updated_if_changed",
     "update_manifest_file",
 ]
