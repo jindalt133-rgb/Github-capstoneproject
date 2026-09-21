@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from pathlib import Path
 
 from .config import MANIFEST_PATH, MISSING_VALUE, PROTECTED_FIELDS
@@ -48,10 +49,16 @@ def _is_allowed_technical_field(field_name: str) -> bool:
     return field_name in FIELD_CATALOG or field_name in REQUIRED_MANIFEST_FIELDS
 
 
+def validate_update_request(field_names: Iterable[str]) -> None:
+    """Reject protected field requests before any manifest mutation occurs."""
+    protected_fields = [field_name for field_name in field_names if field_name in PROTECTED_FIELDS]
+    if protected_fields:
+        raise ValueError(f"Protected fields cannot be updated: {', '.join(protected_fields)}")
+
+
 def update_manifest_field(manifest_text: str, field_name: str, value: object) -> str:
     """Update a single manifest field while preserving all other Markdown content."""
-    if field_name in PROTECTED_FIELDS:
-        raise ValueError(f"Protected field cannot be updated: {field_name}")
+    validate_update_request([field_name])
 
     if not _is_allowed_technical_field(field_name):
         raise ValueError(f"Unsupported manifest field: {field_name}")
@@ -89,6 +96,8 @@ def update_manifest_field(manifest_text: str, field_name: str, value: object) ->
 
 def update_manifest_fields(manifest_text: str, field_values: dict[str, object]) -> str:
     """Update multiple repository-derived technical fields while preserving all non-target content."""
+    validate_update_request(field_values)
+
     updated = manifest_text
     for field_name, value in field_values.items():
         updated = update_manifest_field(updated, field_name, value)
