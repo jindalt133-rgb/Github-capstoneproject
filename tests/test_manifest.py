@@ -123,3 +123,28 @@ def test_protected_field_enforcement_preserves_markdown_structure():
 def test_update_manifest_field_handles_missing_value():
     updated = update_manifest_field(SAMPLE_MANIFEST, "GitHub Repository", None)
     assert "GitHub Repository: Not Found" in updated
+
+
+def test_update_manifest_field_rejects_unsupported_field_names():
+    with pytest.raises(ValueError, match="Unsupported manifest field"):
+        update_manifest_field(SAMPLE_MANIFEST, "Not A Real Field", "value")
+
+
+def test_update_manifest_file_writes_only_targeted_fields_to_disk(tmp_path):
+    manifest_path = tmp_path / "technical-app-manifest.md"
+    manifest_path.write_text(SAMPLE_MANIFEST, encoding="utf-8")
+
+    from doc_sync.manifest import update_manifest_file
+
+    updated = update_manifest_file(
+        manifest_path,
+        {
+            "Application Name": "final-app",
+            "Deployment Pipeline": "Azure Pipelines",
+        },
+    )
+
+    assert "Application Name: final-app" in updated
+    assert "Deployment Pipeline: Azure Pipelines" in updated
+    assert "Service Owner: Jane Doe" in updated
+    assert manifest_path.read_text(encoding="utf-8") == updated

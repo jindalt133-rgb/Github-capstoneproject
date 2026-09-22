@@ -86,3 +86,15 @@ def test_unrelated_manifest_content_remains_unchanged():
     assert "Description: A task management API." in updated
     assert "JIRA Board: TEAM-123" in updated
     assert "Last Updated: 2026-09-21T11:22:33Z" in updated
+
+
+def test_apply_last_updated_if_changed_accepts_dict_updates_and_keeps_utc_timestamp():
+    updated = apply_last_updated_if_changed(
+        SAMPLE_MANIFEST,
+        {"Application Name": "demo-app-v2", "Service Owner": "Jane Smith"},
+        now=FIXED_NOW,
+    )
+
+    assert "Application Name: demo-app-v2" in updated
+    assert "Service Owner: Jane Doe" in updated
+    assert "Last Updated: 2026-09-21T11:22:33Z" in updated
