@@ -45,6 +45,16 @@ def test_case_and_whitespace_differences_do_not_create_drift():
     assert result["drifting_fields"] == ()
 
 
+def test_runtime_version_drift_is_detected():
+    repo = {**BASE_REPO, "Language/Runtime": " python 3.12 "}
+    manifest = {**BASE_MANIFEST, "Language/Runtime": "Python 3.11"}
+
+    result = detect_drift(repo, manifest)
+
+    assert result["has_drift"] is True
+    assert result["drifting_fields"] == ("Language/Runtime",)
+
+
 def test_list_ordering_differences_do_not_create_drift():
     repo = {**BASE_REPO, "Frameworks": "django, fastapi, Flask"}
     manifest = {**BASE_MANIFEST, "Frameworks": "Flask, django, fastapi"}
@@ -73,6 +83,20 @@ def test_missing_value_and_not_found_match():
 
     assert result["has_drift"] is False
     assert result["drifting_fields"] == ()
+
+
+def test_not_found_value_is_treated_as_real_drift():
+    repo = {**BASE_REPO, "GitHub Repository": "Not Found"}
+    manifest = {**BASE_MANIFEST, "GitHub Repository": "https://github.com/example/demo-app"}
+
+    result = detect_drift(repo, manifest)
+
+    assert result["has_drift"] is True
+    assert result["drifting_fields"] == ("GitHub Repository",)
+
+    reverse = detect_drift({**BASE_REPO, "GitHub Repository": "https://github.com/example/demo-app"}, {**BASE_MANIFEST, "GitHub Repository": "Not Found"})
+    assert reverse["has_drift"] is True
+    assert reverse["drifting_fields"] == ("GitHub Repository",)
 
 
 def test_multiple_drifting_fields_are_reported():

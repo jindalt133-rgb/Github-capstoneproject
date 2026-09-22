@@ -43,7 +43,7 @@ def compare_repository_and_manifest(
 
     drifting_fields: list[str] = []
     for field_name in REQUIRED_MANIFEST_FIELDS:
-        if field_name in PROTECTED_FIELDS:
+        if field_name in PROTECTED_FIELDS or field_name == "Last Updated":
             continue
 
         repo_value = normalized_repo.get(field_name, MISSING_VALUE)
