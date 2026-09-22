@@ -9,6 +9,9 @@ description = "Minimal scaffolding for automated technical documentation synchro
 requires-python = ">=3.11"
 dependencies = []
 
+[project.scripts]
+doc-sync = "doc_sync.cli:main"
+
 [tool.setuptools]
 package-dir = {"" = "src"}
 
