@@ -20,6 +20,14 @@ def scan_repository_files(root: str | Path) -> list[str]:
             continue
 
         relative_path = candidate.relative_to(repo_root).as_posix()
+        if relative_path.startswith(".git/"):
+            continue
+        if any(part in {"__pycache__", ".pytest_cache"} for part in Path(relative_path).parts):
+            continue
+        if relative_path.endswith(".pyc") or relative_path.endswith(".pyo"):
+            continue
+        if ".egg-info/" in relative_path or relative_path.endswith(".egg-info"):
+            continue
         if is_authoritative_source(relative_path):
             detected.append(relative_path)
 

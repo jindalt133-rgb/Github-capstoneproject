@@ -6,11 +6,11 @@
 - Business Impact: Medium
 - Description: A demo API service.
 - Language/Runtime: Python
-- Frameworks: Fastapi
+- Frameworks: FastAPI
 - Primary Database: Not Found
 - Cloud Provider: Not Found
 - Infrastructure: Not Found
-- Upstream Dependencies: build-backend, fastapi, name, pytest, requires, requires-python, uvicorn, version
+- Upstream Dependencies: fastapi, pytest, uvicorn
 - Downstream Consumers: Not Found
 - External APIs: Not Found
 - Main Branch: main

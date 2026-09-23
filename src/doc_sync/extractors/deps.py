@@ -8,6 +8,14 @@ from pathlib import Path
 from ..errors import ExtractionConfigError
 from ..source_registry import is_authoritative_source
 
+_FRAMEWORK_LABELS = {
+    "fastapi": "FastAPI",
+    "flask": "Flask",
+    "django": "Django",
+    "pydantic": "Pydantic",
+    "sqlalchemy": "SQLAlchemy",
+}
+
 
 def _read_file_text(repo_root: Path, relative_path: str) -> str:
     if not is_authoritative_source(relative_path):
@@ -21,25 +29,63 @@ def _read_file_text(repo_root: Path, relative_path: str) -> str:
         raise ExtractionConfigError(f"Unreadable authoritative file: {relative_path}") from exc
 
 
+def _dependency_name(value: str) -> str | None:
+    candidate = value.strip().strip("\"'")
+    candidate = candidate.split("#", 1)[0].strip()
+    if not candidate or candidate.startswith("-"):
+        return None
+    candidate = re.split(r"[\s<>=!~\[;]", candidate, maxsplit=1)[0]
+    if not candidate:
+        return None
+    return candidate
+
+
+def _iter_dependency_values(content: str) -> list[str]:
+    values: list[str] = []
+
+    for line in content.splitlines():
+        cleaned = line.strip()
+        if not cleaned or cleaned.startswith("#"):
+            continue
+        if cleaned.startswith("["):
+            continue
+        if cleaned.lower().startswith(("dependencies =", "install_requires =")):
+            raw = cleaned.split("=", 1)[1].strip()
+            values.extend(re.findall(r"['\"]([^'\"]+)['\"]", raw))
+            continue
+        if "=" in cleaned:
+            key, remainder = cleaned.split("=", 1)
+            if key.strip().lower() in {"dependencies", "install_requires"}:
+                values.extend(re.findall(r"['\"]([^'\"]+)['\"]", remainder.strip()))
+            continue
+        dep_name = _dependency_name(cleaned)
+        if dep_name:
+            values.append(dep_name)
+
+    return values
+
+
 def extract_frameworks(repo_root: Path, files: list[str]) -> str | None:
     """Return authoritative framework names detected from project metadata."""
     framework_hits: list[str] = []
     seen: set[str] = set()
 
     for relative_path in files:
+        if not relative_path.endswith(("pyproject.toml", "requirements.txt", "requirements-dev.txt", "setup.cfg", "setup.py")):
+            continue
         content = _read_file_text(repo_root, relative_path)
         if not content:
             continue
-
-        lowered = content.lower()
-        for framework in ("fastapi", "flask", "django", "pydantic", "sqlalchemy"):
-            if framework in lowered and framework not in seen:
-                framework_hits.append(framework.title())
-                seen.add(framework)
-
-        if "fastapi" in lowered:
-            framework_hits.append("FastAPI")
-            seen.add("fastapi")
+        for dep in _iter_dependency_values(content):
+            normalized = (_dependency_name(dep) or dep).lower().replace("_", "-")
+            framework_name = None
+            for key, label in _FRAMEWORK_LABELS.items():
+                if normalized.startswith(key) or normalized.startswith(key.replace("-", "")):
+                    framework_name = label
+                    break
+            if framework_name and framework_name not in seen:
+                framework_hits.append(framework_name)
+                seen.add(framework_name)
 
     return ", ".join(framework_hits) if framework_hits else None
 
@@ -50,36 +96,22 @@ def extract_upstream_dependencies(repo_root: Path, files: list[str]) -> str | No
     seen: set[str] = set()
 
     for relative_path in files:
-        if not relative_path.endswith(("pyproject.toml", "requirements.txt", "requirements-dev.txt", "setup.cfg")):
+        if not relative_path.endswith(("pyproject.toml", "requirements.txt", "requirements-dev.txt", "setup.cfg", "setup.py")):
             continue
         content = _read_file_text(repo_root, relative_path)
         if not content:
             continue
 
-        for line in content.splitlines():
-            cleaned = line.strip()
-            if not cleaned or cleaned.startswith("#"):
+        for value in _iter_dependency_values(content):
+            dep_name = _dependency_name(value)
+            if dep_name is None:
                 continue
-
-            if "dependencies" in cleaned.lower() and "=" in cleaned:
-                serialized = cleaned.split("=", 1)[1].strip()
-                values = re.findall(r"['\"]([^'\"]+)['\"]", serialized)
-                if values:
-                    for value in values:
-                        if value and value not in seen:
-                            dependency_names.append(value)
-                            seen.add(value)
-                    continue
-
-            if cleaned.startswith("["):
+            lower_name = dep_name.lower()
+            if lower_name in {"project", "build-system", "dependencies", "install_requires", "requires", "name", "version", "description", "requires-python", "setuptools", "wheel"}:
                 continue
-
-            match = re.match(r"([A-Za-z0-9_.-]+)", cleaned)
-            if match:
-                value = match.group(1)
-                if value.lower() not in {"project", "dependencies", "pytest", "build-system", "install_requires"} and value not in seen:
-                    dependency_names.append(value)
-                    seen.add(value)
+            if lower_name not in seen:
+                dependency_names.append(dep_name)
+                seen.add(lower_name)
 
     return ", ".join(dependency_names) if dependency_names else None
 

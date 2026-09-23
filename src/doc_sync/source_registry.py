@@ -36,6 +36,7 @@ _TECHNICAL_FILE_NAMES = {
 }
 
 _TECHNICAL_EXTENSIONS = {".py", ".toml", ".yaml", ".yml", ".ini", ".cfg", ".json"}
+_GENERATED_ARTIFACT_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache"}
 
 
 def _normalize_rel_path(path: str) -> str:
@@ -51,6 +52,15 @@ def is_non_authoritative_source(path: str) -> bool:
     if normalized == MANIFEST_PATH:
         return True
 
+    if any(part.lower() == ".git" for part in parts):
+        return True
+
+    if any(part.lower() in _GENERATED_ARTIFACT_DIRS for part in parts):
+        return True
+
+    if any(part.lower().endswith(".egg-info") for part in parts):
+        return True
+
     if any(part.lower() == "docs" for part in parts):
         return True
 
@@ -58,6 +68,9 @@ def is_non_authoritative_source(path: str) -> bool:
         return True
 
     if lower_name.endswith((".md", ".rst", ".txt")):
+        return True
+
+    if lower_name.endswith((".pyc", ".pyo")):
         return True
 
     for marker in NON_AUTHORITATIVE_SOURCES:
@@ -78,6 +91,18 @@ def is_authoritative_source(path: str) -> bool:
 
     parts = PurePosixPath(normalized).parts
     lower_name = PurePosixPath(normalized).name.lower()
+
+    if lower_name.endswith((".pyc", ".pyo")):
+        return False
+
+    if any(part.lower() == ".git" for part in parts):
+        return False
+
+    if any(part.lower() in _GENERATED_ARTIFACT_DIRS for part in parts):
+        return False
+
+    if any(part.lower().endswith(".egg-info") for part in parts):
+        return False
 
     if lower_name in _TECHNICAL_FILE_NAMES:
         return True

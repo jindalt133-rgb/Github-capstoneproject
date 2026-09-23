@@ -21,14 +21,34 @@ def test_extract_python_runtime_and_version_from_authoritative_sources(tmp_path)
 
 def test_extract_frameworks_and_dependencies_from_project_config(tmp_path):
     (tmp_path / "pyproject.toml").write_text(
-        "[project]\ndependencies = ['fastapi', 'uvicorn', 'pytest']\n",
+        "[project]\nname = 'demo-app'\ndependencies = ['fastapi>=0.110', 'uvicorn[standard]', 'pytest>=8']\n",
         encoding="utf-8",
     )
 
     metadata = extract_repository_metadata(tmp_path)
 
-    assert "FastAPI" in metadata["Frameworks"]
-    assert "fastapi" in metadata["Upstream Dependencies"]
+    assert metadata["Frameworks"] == "FastAPI"
+    assert "fastapi" in metadata["Upstream Dependencies"].lower()
+    assert "pytest" in metadata["Upstream Dependencies"].lower()
+    assert "uvicorn" in metadata["Upstream Dependencies"].lower()
+    assert "requires" not in metadata["Upstream Dependencies"].lower()
+    assert "name" not in metadata["Upstream Dependencies"].lower()
+
+
+def test_extractors_ignore_generic_toml_keys_and_duplicates(tmp_path):
+    (tmp_path / "pyproject.toml").write_text(
+        """[build-system]\nrequires = ['setuptools>=68']\n\n[project]\nname = 'demo-app'\nversion = '0.2.0'\ndependencies = ['fastapi', 'fastapi', 'uvicorn', 'pytest']\n""",
+        encoding="utf-8",
+    )
+
+    metadata = extract_repository_metadata(tmp_path)
+
+    assert metadata["Frameworks"] == "FastAPI"
+    assert "fastapi" in metadata["Upstream Dependencies"].lower()
+    assert "uvicorn" in metadata["Upstream Dependencies"].lower()
+    assert "pytest" in metadata["Upstream Dependencies"].lower()
+    assert "requires" not in metadata["Upstream Dependencies"].lower()
+    assert "version" not in metadata["Upstream Dependencies"].lower()
 
 
 def test_extract_test_and_pipeline_metadata(tmp_path):
