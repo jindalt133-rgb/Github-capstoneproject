@@ -69,5 +69,5 @@ def validate_authoritative_file(repo_root: Path, relative_path: str) -> None:
             return
         try:
             yaml.safe_load(content)
-        except Exception as exc:  # pragma: no cover - defensive validation guard
+        except (yaml.YAMLError, TypeError, ValueError) as exc:
             raise ExtractionConfigError(f"Malformed authoritative configuration file: {relative_path}") from exc

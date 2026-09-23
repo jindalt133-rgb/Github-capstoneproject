@@ -73,7 +73,7 @@ def test_cli_reports_update_and_returns_zero(tmp_path, capsys):
 def test_cli_returns_non_zero_when_synchronization_fails(tmp_path, capsys):
     repo = tmp_path / "repo"
     repo.mkdir()
-    (repo / "pyproject.toml").write_text("[project\nname = \"broken\"\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("[project\nname = \"broken\"\npassword = \"super-secret\"\n", encoding="utf-8")
     manifest = repo / "docs" / "technical-app-manifest.md"
     manifest.parent.mkdir(parents=True, exist_ok=True)
     manifest.write_text(
@@ -99,3 +99,5 @@ def test_cli_returns_non_zero_when_synchronization_fails(tmp_path, capsys):
 
     assert exit_code == 1
     assert "Synchronization failed" in captured.err
+    assert "Malformed authoritative configuration file: pyproject.toml" in captured.err
+    assert "super-secret" not in captured.err

@@ -58,6 +58,22 @@ def sanitize_mapping(mapping: Mapping[str, Any]) -> dict[str, str]:
     return sanitized
 
 
+def redact_sensitive_text(text: Any) -> str:
+    """Redact sensitive key/value pairs from diagnostic output without altering the underlying logic."""
+    if text is None:
+        return ""
+
+    sanitized = str(text)
+    for pattern in SENSITIVE_KEY_PATTERNS:
+        key_pattern = re.compile(rf"(?i)({re.escape(pattern)}[A-Z0-9_]*)\s*[:=]\s*(['\"]?)([^\s'\"\n]+)\2")
+        sanitized = key_pattern.sub(r"\1=[REDACTED]", sanitized)
+
+    for pattern in SENSITIVE_KEY_PATTERNS:
+        sanitized = re.sub(rf"(?i)(\b{re.escape(pattern)}\b\s*[:=]\s*)([^\s,;]+)", r"\1[REDACTED]", sanitized)
+
+    return sanitized
+
+
 def require_safe_value(key_name: Any, value: Any) -> str:
     """Raise only when a sensitive value is detected, without exposing the secret itself."""
     if is_sensitive_key_name(key_name):

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .config import MANIFEST_PATH
 from .orchestrator import synchronize_manifest
+from .security import redact_sensitive_text
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -41,7 +42,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = synchronize_manifest(repo_root, manifest_path)
     except Exception as exc:  # pragma: no cover - exercised via CLI tests
-        print(f"Synchronization failed: {exc}", file=sys.stderr)
+        safe_message = redact_sensitive_text(exc)
+        print(f"Synchronization failed: {safe_message}", file=sys.stderr)
         return 1
 
     if result["status"] == "updated":
