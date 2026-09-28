@@ -1,0 +1,9 @@
+# Local environment
+.env
+.env.*
+__pycache__/
+node_modules/
+dist/
+build/
+coverage/
+.DS_Store
