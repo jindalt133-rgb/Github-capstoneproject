@@ -8,6 +8,8 @@ from .change_detection import compute_fingerprint, normalize_metadata
 
 DEFAULT_OUTPUT_PATH = Path("docs/generated/source-documentation.md")
 FINGERPRINT_COMMENT = "<!-- documentation-fingerprint: {fingerprint} -->"
+MISSING_METADATA = "Not available from the current source set"
+UNCERTAIN_METADATA = "Uncertain or incomplete metadata"
 
 
 def _stable_list(items: list[Any]) -> list[str]:
@@ -15,7 +17,7 @@ def _stable_list(items: list[Any]) -> list[str]:
     return sorted(normalized)
 
 
-def _display_value(value: Any, fallback: str = "Not available from the current source set") -> str:
+def _display_value(value: Any, fallback: str = MISSING_METADATA) -> str:
     if value is None:
         return fallback
     if isinstance(value, str):
@@ -23,23 +25,74 @@ def _display_value(value: Any, fallback: str = "Not available from the current s
         return text if text else fallback
     if isinstance(value, (list, tuple)):
         items = [str(item).strip() for item in value if str(item).strip()]
-        return ", ".join(items) if items else fallback
+        return ", ".join(sorted(items)) if items else fallback
+    if isinstance(value, dict):
+        if not value:
+            return fallback
+        return str(value)
     return str(value)
 
 
+def _explicit_value(value: Any, *, field_name: str, missing_fields: list[str] | tuple[str, ...] | set[str] | None = None, uncertain_fields: list[str] | tuple[str, ...] | set[str] | None = None) -> str:
+    missing = {str(item).strip() for item in (missing_fields or []) if str(item).strip()}
+    uncertain = {str(item).strip() for item in (uncertain_fields or []) if str(item).strip()}
+
+    if field_name in uncertain:
+        return UNCERTAIN_METADATA
+    if field_name in missing:
+        return MISSING_METADATA
+
+    return _display_value(value)
+
+
+def _entity_name(item: Any) -> str:
+    if isinstance(item, dict):
+        name = item.get("name")
+    else:
+        name = getattr(item, "name", None)
+    return str(name).strip() if name is not None else ""
+
+
+def _entity_docstring(item: Any) -> Any:
+    if isinstance(item, dict):
+        return item.get("docstring")
+    return getattr(item, "docstring", None)
+
+
+def _named_entity_rows(items: list[Any], *, label: str, missing_fields: list[str], uncertain_fields: list[str]) -> list[str]:
+    rows: list[str] = []
+    for item in sorted(items, key=lambda entry: _entity_name(entry)):
+        if not isinstance(item, dict) and not hasattr(item, "name"):
+            continue
+        name = _entity_name(item)
+        if not name:
+            continue
+        field_name = f"{label.lower()}_docstring"
+        docstring_value = _explicit_value(
+            _entity_docstring(item),
+            field_name=field_name,
+            missing_fields=missing_fields,
+            uncertain_fields=uncertain_fields,
+        )
+        rows.append(f"- {label} {name}: {docstring_value}")
+    return rows
+
+
 def _module_rows(module: dict[str, Any]) -> list[str]:
+    missing_fields = [str(item).strip() for item in (module.get("missing_fields") or []) if str(item).strip()]
+    uncertain_fields = [str(item).strip() for item in (module.get("uncertain_fields") or []) if str(item).strip()]
     rows: list[str] = []
     rows.append(f"### {module.get('module_name', 'module')}")
-    rows.append(f"- Path: {_display_value(module.get('path'))}")
-    rows.append(f"- Docstring: {_display_value(module.get('docstring'))}")
-    rows.append(f"- Imports: {_display_value(module.get('imports'))}")
-    rows.append(f"- Classes: {_display_value(module.get('classes', []), 'None')}")
-    rows.append(f"- Functions: {_display_value(module.get('functions', []), 'None')}")
-    missing_fields = module.get("missing_fields") or []
-    if missing_fields:
-        rows.append(f"- Missing fields: {_display_value(missing_fields, 'None')}")
-    else:
-        rows.append("- Missing fields: None")
+    rows.append(f"- Path: {_explicit_value(module.get('path'), field_name='path', missing_fields=missing_fields, uncertain_fields=uncertain_fields)}")
+    rows.append(f"- Docstring: {_explicit_value(module.get('docstring'), field_name='docstring', missing_fields=missing_fields, uncertain_fields=uncertain_fields)}")
+    rows.append(f"- Imports: {_explicit_value(module.get('imports'), field_name='imports', missing_fields=missing_fields, uncertain_fields=uncertain_fields)}")
+    rows.append(f"- Classes: {_explicit_value(module.get('classes'), field_name='classes', missing_fields=missing_fields, uncertain_fields=uncertain_fields)}")
+    rows.append(f"- Functions: {_explicit_value(module.get('functions'), field_name='functions', missing_fields=missing_fields, uncertain_fields=uncertain_fields)}")
+    rows.extend(_named_entity_rows(module.get("classes") or [], label="Class", missing_fields=missing_fields, uncertain_fields=uncertain_fields))
+    rows.extend(_named_entity_rows(module.get("functions") or [], label="Function", missing_fields=missing_fields, uncertain_fields=uncertain_fields))
+    rows.append(f"- Missing fields: {', '.join(sorted(missing_fields)) if missing_fields else 'None'}")
+    if uncertain_fields:
+        rows.append(f"- Uncertain fields: {', '.join(sorted(uncertain_fields))}")
     rows.append("")
     return rows
 
