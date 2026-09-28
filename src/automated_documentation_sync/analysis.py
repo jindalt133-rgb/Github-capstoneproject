@@ -31,6 +31,27 @@ class ModuleInfo:
     missing_fields: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class FileProcessingError:
+    path: str
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True)
+class AnalysisReport:
+    modules: list[ModuleInfo]
+    errors: list[FileProcessingError]
+
+
+def _normalized_error(exc: Exception) -> tuple[str, str]:
+    if isinstance(exc, (SyntaxError, IndentationError)):
+        return "SyntaxError", "invalid Python source"
+    if isinstance(exc, (FileNotFoundError, OSError, TypeError, ValueError)):
+        return type(exc).__name__, str(exc).strip() or "Unknown processing error"
+    return type(exc).__name__, str(exc).strip() or "Unknown processing error"
+
+
 def _safe_relpath(path: Path, root: Path) -> str:
     try:
         return path.relative_to(root).as_posix()
@@ -95,3 +116,38 @@ def analyze_python_source(file_path: str | Path, project_root: str | Path | None
         functions=functions,
         missing_fields=missing_fields,
     )
+
+
+def format_processing_errors(errors: list[FileProcessingError]) -> str:
+    """Return a deterministic, user-facing summary of per-file processing failures."""
+    if not errors:
+        return "No processing errors."
+
+    rendered = ["Processing errors:"]
+    for error in sorted(errors, key=lambda item: (item.path, item.error_type, item.message)):
+        rendered.append(f"- {error.path}: {error.error_type}: {error.message}")
+    return "\n".join(rendered)
+
+
+def analyze_python_files(file_paths: list[str | Path], project_root: str | Path | None = None) -> AnalysisReport:
+    """Process each Python file independently and keep successful modules even when some files fail."""
+    root = Path(project_root) if project_root is not None else None
+    modules: list[ModuleInfo] = []
+    errors: list[FileProcessingError] = []
+
+    for candidate in sorted(file_paths, key=lambda item: str(item)):
+        source_path = Path(candidate)
+        relative_path = _safe_relpath(source_path, root) if root is not None else str(source_path)
+        try:
+            modules.append(analyze_python_source(source_path, project_root))
+        except (FileNotFoundError, OSError, SyntaxError, IndentationError, TypeError, ValueError) as exc:
+            error_type, message = _normalized_error(exc)
+            errors.append(
+                FileProcessingError(
+                    path=relative_path,
+                    error_type=error_type,
+                    message=message,
+                )
+            )
+
+    return AnalysisReport(modules=modules, errors=sorted(errors, key=lambda item: (item.path, item.error_type, item.message)))
